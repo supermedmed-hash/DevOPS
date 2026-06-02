@@ -1,0 +1,28 @@
+# Archives
+*.zip
+*.rar
+*.tar
+*.gz
+*.tgz
+*.7z
+
+# Presentations / Documents
+*.pptx
+*.ppt
+*.pdf
+*.docx
+*.doc
+
+# OS metadata
+.DS_Store
+Thumbs.db
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+env/
+.pytest_cache/
