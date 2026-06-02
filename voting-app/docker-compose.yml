@@ -1,0 +1,24 @@
+version: '3.8'
+
+services:
+  redis:
+    image: redis:alpine
+    container_name: voting-app-redis
+    # On demande un mot de passe à Redis comme requis dans le cahier des charges
+    command: redis-server --requirepass monmotdepassesupersecret
+    ports:
+      - "6379:6379"
+
+  voting-app:
+    build: .
+    container_name: voting-app-web
+    ports:
+      # Mapping du port 8080 (machine locale) vers 80 (conteneur)
+      - "8080:80"
+    environment:
+      # Lien vers le conteneur Redis
+      - REDIS=redis
+      # Mot de passe défini ci-dessus
+      - REDIS_PWD=monmotdepassesupersecret
+    depends_on:
+      - redis

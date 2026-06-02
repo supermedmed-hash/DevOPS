@@ -1,0 +1,23 @@
+---
+- name: Ensure apt cache is updated and pip is installed
+  ansible.builtin.apt:
+    name:
+      - python3-pip
+      - python3-venv
+    state: present
+    update_cache: yes
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+
+- name: Remove conflicting system package python3-blinker
+  ansible.builtin.apt:
+    name: python3-blinker
+    state: absent
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+
+- name: Install Python dependencies
+  ansible.builtin.pip:
+    name: "{{ pip_packages }}"
+    state: present
+    extra_args: --break-system-packages

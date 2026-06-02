@@ -1,0 +1,6 @@
+---
+- name: Deploy Nginx with custom page
+  hosts: webservers
+  become: yes
+  roles:
+    - nginx
