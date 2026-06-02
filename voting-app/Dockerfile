@@ -2,8 +2,8 @@ FROM python:3.13-slim
 
 WORKDIR /app
 
-# Installation de curl pour le healthcheck et des dépendances python
-RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
+# Installation de curl pour le healthcheck (--no-install-recommends évite les paquets superflus)
+RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
 
 # Copie du fichier des dépendances
 COPY requirements.txt /app/
