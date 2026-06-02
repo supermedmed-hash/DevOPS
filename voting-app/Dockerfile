@@ -3,6 +3,7 @@ FROM python:3.13-slim
 WORKDIR /app
 
 # Installation de curl pour le healthcheck (--no-install-recommends évite les paquets superflus)
+# hadolint ignore=DL3008
 RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
 
 # Copie du fichier des dépendances
