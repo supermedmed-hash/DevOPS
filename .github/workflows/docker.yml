@@ -31,7 +31,7 @@ jobs:
         uses: docker/scout-action@v1
         with:
           command: cves
-          image: ${{ secrets.DOCKER_USERNAME }}/voting-app:latest
+          image: local://${{ secrets.DOCKER_USERNAME }}/voting-app:latest
           only-severities: critical,high
           
       - name: Push Docker image to Docker Hub
