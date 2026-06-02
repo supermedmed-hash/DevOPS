@@ -1,14 +1,134 @@
-name: Build, Scout, and Push Docker Image
+name: CI/CD - Build, Test, Scan & Push
 
 on:
   push:
     branches:
       - main
 
+env:
+  IMAGE_NAME: voting-app
+
 jobs:
-  docker:
+  # ──────────────────────────────────────────────
+  # Job 1 : Lint du Dockerfile
+  # ──────────────────────────────────────────────
+  lint:
+    name: 🔍 Lint Dockerfile
     runs-on: ubuntu-latest
-    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Lint Dockerfile with Hadolint
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: voting-app/Dockerfile
+
+  # ──────────────────────────────────────────────
+  # Job 2 : Build + Tests d'intégration
+  # ──────────────────────────────────────────────
+  build-and-test:
+    name: 🏗️ Build & Test
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        run: docker build -t ${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:latest ./voting-app
+
+      - name: Start application stack
+        working-directory: voting-app
+        run: docker compose up -d
+
+      - name: Wait for Healthcheck
+        # Attend que le healthcheck Docker passe au vert (max 60s)
+        run: |
+          for i in $(seq 1 12); do
+            STATUS=$(docker inspect --format='{{.State.Health.Status}}' voting-app-web 2>/dev/null || echo "starting")
+            echo "⏳ Tentative $i/12 - Status: $STATUS"
+            if [ "$STATUS" = "healthy" ]; then
+              echo "✅ Application is healthy!"
+              break
+            fi
+            if [ "$i" = "12" ]; then
+              echo "❌ Timeout: l'application n'est jamais devenue healthy"
+              docker logs voting-app-web
+              exit 1
+            fi
+            sleep 5
+          done
+
+      - name: Test - Homepage returns HTTP 200
+        run: |
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/)
+          echo "HTTP Status Code: $HTTP_CODE"
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "❌ Expected 200, got $HTTP_CODE"
+            exit 1
+          fi
+          echo "✅ Homepage OK"
+
+      - name: Test - Page contains expected content
+        run: |
+          BODY=$(curl -s http://localhost:8080/)
+          # Vérifie que la page contient bien les boutons de vote
+          echo "$BODY" | grep -q "Cats" && echo "✅ Button 'Cats' found" || (echo "❌ Button 'Cats' not found" && exit 1)
+          echo "$BODY" | grep -q "Dogs" && echo "✅ Button 'Dogs' found" || (echo "❌ Button 'Dogs' not found" && exit 1)
+
+      - name: Test - Vote POST request works
+        run: |
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST -d "vote=Cats" http://localhost:8080/)
+          echo "POST Status Code: $HTTP_CODE"
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "❌ POST vote failed with $HTTP_CODE"
+            exit 1
+          fi
+          echo "✅ Vote POST OK"
+
+      - name: Teardown application stack
+        if: always()
+        working-directory: voting-app
+        run: docker compose down -v
+
+  # ──────────────────────────────────────────────
+  # Job 3 : Scan de sécurité
+  # ──────────────────────────────────────────────
+  security-scan:
+    name: 🛡️ Security Scan
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Build Docker image for scan
+        run: docker build -t ${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:latest ./voting-app
+
+      - name: Docker Scout - CVE Scan
+        uses: docker/scout-action@v1
+        with:
+          command: cves
+          image: local://${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:latest
+          only-severities: critical,high
+
+  # ──────────────────────────────────────────────
+  # Job 4 : Push sur Docker Hub (uniquement si tout est vert)
+  # ──────────────────────────────────────────────
+  push:
+    name: 🚀 Push to Docker Hub
+    runs-on: ubuntu-latest
+    needs: [build-and-test, security-scan]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -22,29 +142,13 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      - name: Build Docker image
-        # On se place dans le contexte du dossier voting-app où se trouve le Dockerfile
-        run: docker build -t ${{ secrets.DOCKER_USERNAME }}/voting-app:latest ./voting-app
-
-      - name: Run Integration Tests
-        run: |
-          cd voting-app
-          # Lancement de Redis et de l'application via docker-compose
-          docker compose up -d
-          # Attente que l'application soit prête (le healthcheck est configuré dans le Dockerfile)
-          sleep 15
-          # Test HTTP basique : vérifier que l'app répond bien en 200 OK
-          curl -f http://localhost:8080/
-          # Si le curl échoue, l'action s'arrête ici en erreur. Sinon on coupe les conteneurs.
-          docker compose down
-          
-      - name: Docker Scout Vulnerability Scan
-        # L'action officielle Docker Scout pour analyser les CVE de l'image
-        uses: docker/scout-action@v1
+      - name: Build and Push Docker image
+        uses: docker/build-push-action@v5
         with:
-          command: cves
-          image: local://${{ secrets.DOCKER_USERNAME }}/voting-app:latest
-          only-severities: critical,high
-          
-      - name: Push Docker image to Docker Hub
-        run: docker push ${{ secrets.DOCKER_USERNAME }}/voting-app:latest
+          context: ./voting-app
+          push: true
+          tags: |
+            ${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:latest
+            ${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
