@@ -30,13 +30,13 @@ jobs:
         run: |
           cd voting-app
           # Lancement de Redis et de l'application via docker-compose
-          docker-compose up -d
+          docker compose up -d
           # Attente que l'application soit prête (le healthcheck est configuré dans le Dockerfile)
           sleep 15
           # Test HTTP basique : vérifier que l'app répond bien en 200 OK
           curl -f http://localhost:8080/
           # Si le curl échoue, l'action s'arrête ici en erreur. Sinon on coupe les conteneurs.
-          docker-compose down
+          docker compose down
           
       - name: Docker Scout Vulnerability Scan
         # L'action officielle Docker Scout pour analyser les CVE de l'image
